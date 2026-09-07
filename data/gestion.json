@@ -1,0 +1,30 @@
+{
+  "canaux": [
+    { "id": "marche", "nom": "Marché", "description": "Vente sur les marchés locaux" },
+    { "id": "magasin", "nom": "Magasin de producteurs", "description": "Dépôt-vente" },
+    { "id": "amap", "nom": "AMAP", "description": "Paniers hebdomadaires" }
+  ],
+  "stock": {
+    "tomate-cornue-andine": {
+      "quantite_estimee": 200,
+      "quantite_reelle_produite": 180,
+      "cout_prod_unitaire_estime": 0.35,
+      "cout_prod_unitaire_reel": 0.4
+    },
+    "basilic-grand-vert": {
+      "quantite_estimee": 300,
+      "quantite_reelle_produite": 280,
+      "cout_prod_unitaire_estime": 0.2,
+      "cout_prod_unitaire_reel": 0.22
+    }
+  },
+  "prix": {
+    "tomate-cornue-andine": { "marche": 2.5, "magasin": 2.2, "amap": 2 },
+    "basilic-grand-vert": { "marche": 1.8, "magasin": 1.6, "amap": 1.5 }
+  },
+  "charges": [
+    { "id": "c1", "libelle": "Eau et électricité serre", "categorie": "Fluides", "montant_estime": 400, "montant_reel": 0 },
+    { "id": "c2", "libelle": "Contenants et terreau (part générale)", "categorie": "Fournitures", "montant_estime": 600, "montant_reel": 0 }
+  ],
+  "ventes": []
+}

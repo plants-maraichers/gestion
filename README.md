@@ -45,13 +45,28 @@ catalogue.json
             └── caracteristiques (exposition, semis, plantation, cycle, couleur, hauteur, particularités)
 ```
 
-## Prochaines briques (pas encore construites)
+## Brique 2 : stocks, prix, canaux, charges, ventes
 
-Elles viendront dans des fichiers JSON séparés qui référencent les `id` de variétés ci-dessus, pour ne jamais toucher au catalogue en le construisant :
+- `data/gestion.json` : toutes ces données, dans un seul fichier.
+- `admin-gestion.html` : l'outil d'édition, à ouvrir comme `admin.html`.
 
-- `data/stocks.json` — quantités en stock par variété et par lieu de production.
-- `data/production.json` — quantités estimées vs réelles, coûts de production, charges.
-- `data/canaux.json` — canaux de distribution (marché, magasin, AMAP, vente directe...).
-- `data/ventes.json` — ventes par canal, avec décrément automatique du stock et calcul du CA réel.
+Utilisation :
 
-Un deuxième outil local (`admin-stocks.html` ou onglet dans `admin.html`) permettra de saisir tout ça, avec un tableau de bord CA estimé / réel et coûts de production.
+1. Ouvre `admin-gestion.html` dans le navigateur.
+2. Bouton **1. Charger catalogue.json** → sélectionne `data/catalogue.json` (lecture seule, juste pour avoir la liste des variétés dans les menus déroulants).
+3. Bouton **2. Ouvrir gestion.json** → sélectionne `data/gestion.json`.
+4. Onglets disponibles :
+   - **Canaux** : tes points de vente (marché, magasin, AMAP...).
+   - **Stock & coûts** : par variété, quantité estimée / réellement produite, coût de production unitaire estimé / réel. Le **disponible** est calculé automatiquement (produit − vendu), jamais à corriger à la main.
+   - **Prix par canal** : un prix différent possible par variété × canal.
+   - **Charges globales** : les charges de saison non rattachées à une variété précise (eau, structure...), montant estimé et réel.
+   - **Ventes** : formulaire de saisie rapide (variété, canal, quantité, prix pré-rempli depuis l'onglet Prix, mais modifiable), historique complet, suppression possible.
+   - **Tableau de bord** : CA estimé vs réel, coûts de production estimés vs réels, marge estimée vs réelle, et le disponible par variété d'un coup d'œil.
+5. **Enregistrer** réécrit directement `data/gestion.json` (Chrome/Edge) ou propose de le télécharger (Firefox/Safari, comme pour `admin.html`).
+
+Un exemple est déjà rempli dans `data/gestion.json` (2 variétés, 3 canaux, 2 charges) pour que tu voies le format — remplace-le par tes vraies données au fur et à mesure.
+
+## Prochaine brique possible
+
+- Un export du catalogue en PDF (pour impression) réutilisant `data/catalogue.json`.
+- Une vue publique du disponible en temps réel sur `index.html`, si tu veux un jour l'afficher aux clients (actuellement le tableau de bord reste un outil interne, pas publié).

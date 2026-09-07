@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin gestion — stocks, ventes, CA</title>
+<style>
+  :root{
+    --ink:#1f2a1e; --muted:#5c6b58; --line:#d8d2be;
+    --bg:#f7f6f1; --panel:#ffffff; --accent:#3e6b4f; --accent-dark:#2c4a38;
+    --danger:#a33b2c; --warn:#b8862f; --pos:#2c4a38; --neg:#a33b2c;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:var(--bg); font-size:14px;}
+  header{background:var(--accent-dark); color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;}
+  header h1{font-size:16px; margin:0; font-weight:600;}
+  .status{font-size:12px; opacity:.85;}
+  .btnbar{display:flex; gap:8px; flex-wrap:wrap;}
+  button{font:inherit; cursor:pointer; border:1px solid var(--line); background:var(--panel); color:var(--ink); padding:7px 12px; border-radius:4px;}
+  button:hover{border-color:var(--accent);}
+  button.primary{background:var(--accent); color:#fff; border-color:var(--accent);}
+  button.primary:hover{background:var(--accent-dark);}
+  button.danger{color:var(--danger); border-color:var(--danger);}
+  button.small{padding:3px 8px; font-size:12px;}
+  .tabs{display:flex; gap:4px; padding:10px 20px 0; background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap;}
+  .tab{padding:9px 14px; cursor:pointer; border-radius:5px 5px 0 0; color:var(--muted); font-size:13.5px;}
+  .tab.active{background:var(--bg); color:var(--ink); font-weight:600; border:1px solid var(--line); border-bottom:1px solid var(--bg); margin-bottom:-1px;}
+  main{padding:22px; max-width:1100px; margin:0 auto;}
+  h2{font-size:19px; margin:0 0 4px;}
+  .hint{color:var(--muted); font-size:13px; margin-bottom:16px;}
+  table{width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line);}
+  th,td{padding:7px 9px; border-bottom:1px solid var(--line); text-align:left; font-size:13px;}
+  th{background:#eef0e6; font-weight:600; font-size:12px; color:var(--muted);}
+  td input, td select{width:100%; border:1px solid transparent; background:transparent; padding:4px; font:inherit; border-radius:3px;}
+  td input:hover, td select:hover, td input:focus, td select:focus{border-color:var(--line); background:#fff;}
+  input[type=number]{text-align:right;}
+  .cat-group td{background:#f4f2e8; font-weight:600; color:var(--accent-dark);}
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:20px; margin-bottom:20px;}
+  .form-row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
+  .field{display:flex; flex-direction:column; gap:4px;}
+  .field label{font-size:12px; color:var(--muted);}
+  .field input, .field select{padding:7px; border:1px solid var(--line); border-radius:4px; font:inherit;}
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:22px;}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:16px;}
+  .card .label{font-size:12px; color:var(--muted); margin-bottom:6px;}
+  .card .val{font-size:22px; font-weight:600;}
+  .val.pos{color:var(--pos);} .val.neg{color:var(--neg);}
+  .neg-cell{color:var(--neg); font-weight:600;}
+  .empty-hint{color:var(--muted); font-style:italic; padding:30px; text-align:center;}
+  .toast{position:fixed; bottom:16px; right:16px; background:var(--accent-dark); color:#fff; padding:10px 16px; border-radius:5px; font-size:13px; opacity:0; transform:translateY(8px); transition:.2s; pointer-events:none;}
+  .toast.show{opacity:1; transform:translateY(0);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📊 Admin gestion</h1>
+  <div class="status" id="statusLabel">Aucune donnée chargée</div>
+  <div class="btnbar">
+    <button id="btnLoadCatalogue">1. Charger catalogue.json</button>
+    <button id="btnOpen">2. Ouvrir gestion.json</button>
+    <button id="btnNew">Nouveau</button>
+    <button id="btnSave" class="primary">Enregistrer</button>
+    <button id="btnDownload">Télécharger</button>
+  </div>
+</header>
+
+<div class="tabs" id="tabs"></div>
+<main id="main"><div class="empty-hint">Charge d'abord ton catalogue.json (pour la liste des variétés), puis ouvre ou crée gestion.json.</div></main>
+
+<div class="toast" id="toast"></div>
+<input type="file" id="catalogueInput" accept="application/json" style="display:none;">
+<input type="file" id="gestionInput" accept="application/json" style="display:none;">
+
+<script>
+/* ---------- État ---------- */
+let catalogue = null;      // lecture seule
+let varietes = [];         // liste plate {id, nom, espece, categorie}
+let data = null;           // gestion.json
+let fileHandle = null;
+let activeTab = 'canaux';
+
+const emptyData = () => ({ canaux:[], stock:{}, prix:{}, charges:[], ventes:[] });
+const uid = () => 'v'+Math.random().toString(36).slice(2,9);
+const fmtMoney = n => (Math.round((n||0)*100)/100).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €';
+
+/* ---------- Chargement catalogue (lecture seule) ---------- */
+document.getElementById('btnLoadCatalogue').onclick = () => document.getElementById('catalogueInput').click();
+document.getElementById('catalogueInput').onchange = (e) => {
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      catalogue = JSON.parse(reader.result);
+      buildVarieteList();
+      toast('Catalogue chargé (' + varietes.length + ' variétés)');
+      renderAll();
+    }catch(err){ alert('JSON invalide : '+err.message); }
+  };
+  reader.readAsText(file);
+};
+function buildVarieteList(){
+  varietes = [];
+  (catalogue.categories||[]).forEach(cat=>{
+    (cat.especes||[]).forEach(esp=>{
+      (esp.varietes||[]).forEach(v=>{
+        varietes.push({id:v.id, nom:v.nom, espece:esp.nom, categorie:cat.nom});
+      });
+    });
+  });
+}
+
+/* ---------- Chargement / sauvegarde gestion.json ---------- */
+document.getElementById('btnOpen').onclick = async () => {
+  if(window.showOpenFilePicker){
+    try{
+      const [handle] = await window.showOpenFilePicker({types:[{description:'JSON', accept:{'application/json':['.json']}}]});
+      fileHandle = handle;
+      const file = await handle.getFile();
+      loadFromText(await file.text(), file.name);
+    }catch(e){ if(e.name!=='AbortError') console.error(e); }
+  } else { document.getElementById('gestionInput').click(); }
+};
+document.getElementById('gestionInput').onchange = (e) => {
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => loadFromText(reader.result, file.name);
+  reader.readAsText(file);
+};
+function loadFromText(text, name){
+  try{
+    data = JSON.parse(text);
+    ['canaux','charges','ventes'].forEach(k=>{ if(!data[k]) data[k]=[]; });
+    ['stock','prix'].forEach(k=>{ if(!data[k]) data[k]={}; });
+    setStatus('Chargé : '+name);
+    renderAll();
+    toast('Gestion chargée');
+  }catch(err){ alert('JSON invalide : '+err.message); }
+}
+document.getElementById('btnNew').onclick = () => {
+  if(data && !confirm('Créer une nouvelle gestion vide ? Les données non enregistrées seront perdues.')) return;
+  data = emptyData(); fileHandle = null;
+  setStatus('Nouvelle gestion (non enregistrée)');
+  renderAll();
+};
+document.getElementById('btnSave').onclick = async () => {
+  if(!data) return;
+  const text = JSON.stringify(data, null, 2);
+  if(fileHandle){
+    try{
+      const writable = await fileHandle.createWritable();
+      await writable.write(text); await writable.close();
+      toast('Enregistré dans '+fileHandle.name); return;
+    }catch(e){ console.error(e); }
+  }
+  if(window.showSaveFilePicker){
+    try{
+      const handle = await window.showSaveFilePicker({suggestedName:'gestion.json', types:[{description:'JSON', accept:{'application/json':['.json']}}]});
+      const writable = await handle.createWritable();
+      await writable.write(text); await writable.close();
+      fileHandle = handle; setStatus('Enregistré : '+handle.name); toast('Enregistré'); return;
+    }catch(e){ if(e.name!=='AbortError') console.error(e); return; }
+  }
+  downloadJson();
+};
+document.getElementById('btnDownload').onclick = downloadJson;
+function downloadJson(){
+  if(!data) return;
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='gestion.json'; a.click();
+  URL.revokeObjectURL(url);
+  toast('Téléchargement lancé');
+}
+function setStatus(s){ document.getElementById('statusLabel').textContent = s; }
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+/* ---------- Calculs ---------- */
+function ensureStock(varId){
+  if(!data.stock[varId]) data.stock[varId] = {quantite_estimee:0, quantite_reelle_produite:0, cout_prod_unitaire_estime:0, cout_prod_unitaire_reel:0};
+  return data.stock[varId];
+}
+function ensurePrix(varId){ if(!data.prix[varId]) data.prix[varId]={}; return data.prix[varId]; }
+
+function venduPourVariete(varId){
+  return data.ventes.filter(v=>v.variete_id===varId).reduce((s,v)=>s+ (Number(v.quantite)||0), 0);
+}
+function disponible(varId){
+  const s = data.stock[varId];
+  const produit = s ? Number(s.quantite_reelle_produite)||0 : 0;
+  return produit - venduPourVariete(varId);
+}
+function prixMoyen(varId){
+  const p = data.prix[varId]; if(!p) return 0;
+  const vals = Object.values(p).map(Number).filter(n=>!isNaN(n) && n>0);
+  if(!vals.length) return 0;
+  return vals.reduce((a,b)=>a+b,0)/vals.length;
+}
+function computeDashboard(){
+  let caEstime=0, coutVarEstime=0, caReel=0, coutVarReel=0;
+  varietes.forEach(v=>{
+    const s = data.stock[v.id];
+    if(s){
+      caEstime += (Number(s.quantite_estimee)||0) * prixMoyen(v.id);
+      coutVarEstime += (Number(s.quantite_estimee)||0) * (Number(s.cout_prod_unitaire_estime)||0);
+      coutVarReel += (Number(s.quantite_reelle_produite)||0) * (Number(s.cout_prod_unitaire_reel)||0);
+    }
+  });
+  caReel = data.ventes.reduce((s,v)=>s+(Number(v.total)||0),0);
+  const chargesEstimees = data.charges.reduce((s,c)=>s+(Number(c.montant_estime)||0),0);
+  const chargesReelles = data.charges.reduce((s,c)=>s+(Number(c.montant_reel)||0),0);
+  const margeEstimee = caEstime - coutVarEstime - chargesEstimees;
+  const margeReelle = caReel - coutVarReel - chargesReelles;
+  return {caEstime, coutVarEstime, chargesEstimees, margeEstimee, caReel, coutVarReel, chargesReelles, margeReelle};
+}
+
+/* ---------- Rendu général ---------- */
+const TABS = [
+  ['canaux','Canaux'],
+  ['stock','Stock & coûts'],
+  ['prix','Prix par canal'],
+  ['charges','Charges globales'],
+  ['ventes','Ventes'],
+  ['dashboard','Tableau de bord'],
+];
+function renderAll(){ renderTabs(); renderMain(); }
+function renderTabs(){
+  const wrap = document.getElementById('tabs'); wrap.innerHTML='';
+  if(!data){ return; }
+  TABS.forEach(([key,label])=>{
+    const d = document.createElement('div');
+    d.className = 'tab' + (activeTab===key? ' active':'');
+    d.textContent = label;
+    d.onclick = ()=>{ activeTab=key; renderAll(); };
+    wrap.appendChild(d);
+  });
+}
+function renderMain(){
+  const main = document.getElementById('main'); main.innerHTML='';
+  if(!data){ main.innerHTML = '<div class="empty-hint">Charge d\'abord ton catalogue.json, puis ouvre ou crée gestion.json.</div>'; return; }
+  if(!varietes.length){ main.innerHTML = '<div class="empty-hint">Charge aussi catalogue.json pour voir tes variétés (bouton 1 en haut).</div>'; }
+  const renderers = {canaux:renderCanaux, stock:renderStock, prix:renderPrix, charges:renderCharges, ventes:renderVentes, dashboard:renderDashboard};
+  renderers[activeTab](main);
+}
+
+/* ---------- Canaux ---------- */
+function renderCanaux(main){
+  const panel = document.createElement('div'); panel.className='panel';
+  panel.innerHTML = '<h2>Canaux de distribution</h2><div class="hint">Marché, magasin, AMAP, vente directe...</div>';
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th>Nom</th><th>Description</th><th></th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  data.canaux.forEach(c=>{
+    const tr = document.createElement('tr');
+    tr.appendChild(tdInput(c.nom, v=>{c.nom=v; renderTabs();}));
+    tr.appendChild(tdInput(c.description, v=>c.description=v));
+    const tdDel = document.createElement('td');
+    const btn = document.createElement('button'); btn.className='danger small'; btn.textContent='Supprimer';
+    btn.onclick = ()=>{ if(confirm('Supprimer ce canal ?')){ data.canaux = data.canaux.filter(x=>x.id!==c.id); renderAll(); } };
+    tdDel.appendChild(btn); tr.appendChild(tdDel);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  panel.appendChild(table);
+  const addBtn = document.createElement('button'); addBtn.className='primary small'; addBtn.style.marginTop='12px';
+  addBtn.textContent='+ Ajouter un canal';
+  addBtn.onclick = ()=>{ data.canaux.push({id:uid(), nom:'Nouveau canal', description:''}); renderAll(); };
+  panel.appendChild(addBtn);
+  main.appendChild(panel);
+}
+function tdInput(value, onInput, type='text'){
+  const td = document.createElement('td');
+  const input = document.createElement('input'); input.type=type; input.value = value||'';
+  input.oninput = ()=> onInput(type==='number'? input.value : input.value);
+  td.appendChild(input);
+  return td;
+}
+
+/* ---------- Stock & coûts ---------- */
+function renderStock(main){
+  const panel = document.createElement('div'); panel.className='panel';
+  panel.innerHTML = '<h2>Stock & coûts de production</h2><div class="hint">Quantités et coûts unitaires, par variété. Le disponible est calculé automatiquement (produit − vendu).</div>';
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th>Variété</th><th>Qté estimée</th><th>Qté produite réelle</th><th>Coût unit. estimé</th><th>Coût unit. réel</th><th>Vendu</th><th>Disponible</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  let currentCat = null;
+  varietes.forEach(v=>{
+    if(v.categorie !== currentCat){
+      currentCat = v.categorie;
+      const trCat = document.createElement('tr'); trCat.className='cat-group';
+      const td = document.createElement('td'); td.colSpan=7; td.textContent = currentCat;
+      trCat.appendChild(td); tbody.appendChild(trCat);
+    }
+    const s = ensureStock(v.id);
+    const tr = document.createElement('tr');
+    const tdNom = document.createElement('td'); tdNom.textContent = v.nom + ' (' + v.espece + ')'; tr.appendChild(tdNom);
+    tr.appendChild(tdInput(s.quantite_estimee, val=>{s.quantite_estimee=val; renderMain();}, 'number'));
+    tr.appendChild(tdInput(s.quantite_reelle_produite, val=>{s.quantite_reelle_produite=val; renderMain();}, 'number'));
+    tr.appendChild(tdInput(s.cout_prod_unitaire_estime, val=>s.cout_prod_unitaire_estime=val, 'number'));
+    tr.appendChild(tdInput(s.cout_prod_unitaire_reel, val=>s.cout_prod_unitaire_reel=val, 'number'));
+    const tdVendu = document.createElement('td'); tdVendu.textContent = venduPourVariete(v.id); tr.appendChild(tdVendu);
+    const disp = disponible(v.id);
+    const tdDisp = document.createElement('td'); tdDisp.textContent = disp;
+    if(disp<0) tdDisp.className='neg-cell';
+    tr.appendChild(tdDisp);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  panel.appendChild(table);
+  main.appendChild(panel);
+}
+
+/* ---------- Prix par canal ---------- */
+function renderPrix(main){
+  const panel = document.createElement('div'); panel.className='panel';
+  panel.innerHTML = '<h2>Prix par canal</h2><div class="hint">Un prix différent est possible par canal de distribution.</div>';
+  if(!data.canaux.length){
+    panel.innerHTML += '<div class="empty-hint">Ajoute d\'abord au moins un canal dans l\'onglet Canaux.</div>';
+    main.appendChild(panel); return;
+  }
+  const table = document.createElement('table');
+  let head = '<thead><tr><th>Variété</th>' + data.canaux.map(c=>`<th>${c.nom}</th>`).join('') + '</tr></thead>';
+  table.innerHTML = head;
+  const tbody = document.createElement('tbody');
+  let currentCat = null;
+  varietes.forEach(v=>{
+    if(v.categorie !== currentCat){
+      currentCat = v.categorie;
+      const trCat = document.createElement('tr'); trCat.className='cat-group';
+      const td = document.createElement('td'); td.colSpan = data.canaux.length+1; td.textContent = currentCat;
+      trCat.appendChild(td); tbody.appendChild(trCat);
+    }
+    const p = ensurePrix(v.id);
+    const tr = document.createElement('tr');
+    const tdNom = document.createElement('td'); tdNom.textContent = v.nom; tr.appendChild(tdNom);
+    data.canaux.forEach(c=>{
+      tr.appendChild(tdInput(p[c.id], val=>{p[c.id]=val;}, 'number'));
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  panel.appendChild(table);
+  main.appendChild(panel);
+}
+
+/* ---------- Charges globales ---------- */
+function renderCharges(main){
+  const panel = document.createElement('div'); panel.className='panel';
+  panel.innerHTML = '<h2>Charges globales de saison</h2><div class="hint">Ce qui n\'est pas rattaché à une variété précise : eau, structure, main d\'œuvre générale, etc.</div>';
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th>Libellé</th><th>Catégorie</th><th>Montant estimé</th><th>Montant réel</th><th></th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  data.charges.forEach(c=>{
+    const tr = document.createElement('tr');
+    tr.appendChild(tdInput(c.libelle, v=>c.libelle=v));
+    tr.appendChild(tdInput(c.categorie, v=>c.categorie=v));
+    tr.appendChild(tdInput(c.montant_estime, v=>{c.montant_estime=v;}, 'number'));
+    tr.appendChild(tdInput(c.montant_reel, v=>{c.montant_reel=v;}, 'number'));
+    const tdDel = document.createElement('td');
+    const btn = document.createElement('button'); btn.className='danger small'; btn.textContent='Supprimer';
+    btn.onclick = ()=>{ if(confirm('Supprimer cette charge ?')){ data.charges = data.charges.filter(x=>x.id!==c.id); renderMain(); } };
+    tdDel.appendChild(btn); tr.appendChild(tdDel);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  panel.appendChild(table);
+  const addBtn = document.createElement('button'); addBtn.className='primary small'; addBtn.style.marginTop='12px';
+  addBtn.textContent='+ Ajouter une charge';
+  addBtn.onclick = ()=>{ data.charges.push({id:uid(), libelle:'Nouvelle charge', categorie:'', montant_estime:0, montant_reel:0}); renderMain(); };
+  panel.appendChild(addBtn);
+  main.appendChild(panel);
+}
+
+/* ---------- Ventes ---------- */
+function renderVentes(main){
+  const panel = document.createElement('div'); panel.className='panel';
+  panel.innerHTML = '<h2>Ventes</h2><div class="hint">Chaque vente diminue automatiquement le disponible de la variété concernée.</div>';
+
+  if(!data.canaux.length || !varietes.length){
+    panel.innerHTML += '<div class="empty-hint">Il faut au moins un canal (onglet Canaux) et le catalogue chargé pour saisir une vente.</div>';
+    main.appendChild(panel); return;
+  }
+
+  const form = document.createElement('div'); form.className='form-row';
+  const fDate = fieldEl('Date','date', new Date().toISOString().slice(0,10));
+  const fVar = document.createElement('div'); fVar.className='field';
+  fVar.innerHTML = '<label>Variété</label>';
+  const selVar = document.createElement('select');
+  let lastCat=null;
+  varietes.forEach(v=>{
+    if(v.categorie!==lastCat){ lastCat=v.categorie; }
+    const opt = document.createElement('option'); opt.value=v.id; opt.textContent = v.nom+' — '+v.categorie;
+    selVar.appendChild(opt);
+  });
+  fVar.appendChild(selVar);
+
+  const fCanal = document.createElement('div'); fCanal.className='field';
+  fCanal.innerHTML = '<label>Canal</label>';
+  const selCanal = document.createElement('select');
+  data.canaux.forEach(c=>{ const opt=document.createElement('option'); opt.value=c.id; opt.textContent=c.nom; selCanal.appendChild(opt); });
+  fCanal.appendChild(selCanal);
+
+  const fQty = fieldEl('Quantité','number','1');
+  const fPrix = fieldEl('Prix unitaire','number','0');
+
+  function updatePrixSuggestion(){
+    const p = data.prix[selVar.value];
+    const suggested = p && p[selCanal.value] ? p[selCanal.value] : '';
+    fPrix.querySelector('input').value = suggested;
+  }
+  selVar.onchange = updatePrixSuggestion; selCanal.onchange = updatePrixSuggestion;
+  updatePrixSuggestion();
+
+  const btnAdd = document.createElement('button'); btnAdd.className='primary'; btnAdd.textContent='Enregistrer la vente';
+  btnAdd.onclick = ()=>{
+    const qty = Number(fQty.querySelector('input').value)||0;
+    const prix = Number(fPrix.querySelector('input').value)||0;
+    if(qty<=0){ alert('Quantité invalide'); return; }
+    data.ventes.push({
+      id: uid(), date: fDate.querySelector('input').value,
+      variete_id: selVar.value, canal_id: selCanal.value,
+      quantite: qty, prix_unitaire: prix, total: Math.round(qty*prix*100)/100
+    });
+    renderMain(); toast('Vente enregistrée');
+  };
+
+  form.appendChild(fDate); form.appendChild(fVar); form.appendChild(fCanal); form.appendChild(fQty); form.appendChild(fPrix); form.appendChild(btnAdd);
+  panel.appendChild(form);
+  main.appendChild(panel);
+
+  const panel2 = document.createElement('div'); panel2.className='panel';
+  panel2.innerHTML = '<h2>Historique des ventes</h2>';
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th>Date</th><th>Variété</th><th>Canal</th><th>Qté</th><th>Prix unit.</th><th>Total</th><th></th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  [...data.ventes].sort((a,b)=> (b.date||'').localeCompare(a.date||'')).forEach(v=>{
+    const varInfo = varietes.find(x=>x.id===v.variete_id);
+    const canalInfo = data.canaux.find(c=>c.id===v.canal_id);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${v.date||''}</td><td>${varInfo? varInfo.nom : v.variete_id}</td><td>${canalInfo? canalInfo.nom : v.canal_id}</td><td>${v.quantite}</td><td>${fmtMoney(v.prix_unitaire)}</td><td>${fmtMoney(v.total)}</td>`;
+    const tdDel = document.createElement('td');
+    const btn = document.createElement('button'); btn.className='danger small'; btn.textContent='Supprimer';
+    btn.onclick = ()=>{ if(confirm('Supprimer cette vente ?')){ data.ventes = data.ventes.filter(x=>x.id!==v.id); renderMain(); } };
+    tdDel.appendChild(btn); tr.appendChild(tdDel);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  panel2.appendChild(table);
+  main.appendChild(panel2);
+}
+function fieldEl(label, type, defaultVal){
+  const wrap = document.createElement('div'); wrap.className='field';
+  wrap.innerHTML = `<label>${label}</label>`;
+  const input = document.createElement('input'); input.type=type; input.value=defaultVal||'';
+  if(type==='number'){ input.step='0.01'; input.min='0'; }
+  wrap.appendChild(input);
+  return wrap;
+}
+
+/* ---------- Tableau de bord ---------- */
+function renderDashboard(main){
+  const d = computeDashboard();
+  const cards = document.createElement('div'); cards.className='cards';
+  const rows = [
+    ['CA estimé', d.caEstime, null],
+    ['CA réel', d.caReel, null],
+    ['Coûts de prod (variétés) estimés', d.coutVarEstime, null],
+    ['Coûts de prod (variétés) réels', d.coutVarReel, null],
+    ['Charges estimées', d.chargesEstimees, null],
+    ['Charges réelles', d.chargesReelles, null],
+    ['Marge estimée', d.margeEstimee, d.margeEstimee>=0?'pos':'neg'],
+    ['Marge réelle', d.margeReelle, d.margeReelle>=0?'pos':'neg'],
+  ];
+  rows.forEach(([label,val,cls])=>{
+    const c = document.createElement('div'); c.className='card';
+    c.innerHTML = `<div class="label">${label}</div><div class="val ${cls||''}">${fmtMoney(val)}</div>`;
+    cards.appendChild(c);
+  });
+  main.appendChild(cards);
+
+  const panel = document.createElement('div'); panel.className='panel';
+  panel.innerHTML = '<h2>Disponible par variété</h2>';
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th>Variété</th><th>Produit</th><th>Vendu</th><th>Disponible</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  varietes.forEach(v=>{
+    const s = data.stock[v.id] || {quantite_reelle_produite:0};
+    const vendu = venduPourVariete(v.id);
+    const disp = (Number(s.quantite_reelle_produite)||0) - vendu;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${v.nom}</td><td>${s.quantite_reelle_produite||0}</td><td>${vendu}</td><td class="${disp<0?'neg-cell':''}">${disp}</td>`;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  panel.appendChild(table);
+  main.appendChild(panel);
+}
+</script>
+</body>
+</html>
