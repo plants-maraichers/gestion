@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin catalogue — plants</title>
+<style>
+  :root{
+    --ink:#1f2a1e; --muted:#5c6b58; --line:#d8d2be;
+    --bg:#f7f6f1; --panel:#ffffff; --accent:#3e6b4f; --accent-dark:#2c4a38;
+    --danger:#a33b2c; --warn:#b8862f;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:var(--ink); background:var(--bg); font-size:14px;
+  }
+  header{
+    background:var(--accent-dark); color:#fff; padding:14px 20px;
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
+  }
+  header h1{font-size:16px; margin:0; font-weight:600;}
+  header .status{font-size:12px; opacity:.85;}
+  .btnbar{display:flex; gap:8px; flex-wrap:wrap;}
+  button{
+    font:inherit; cursor:pointer; border:1px solid var(--line); background:var(--panel);
+    color:var(--ink); padding:7px 12px; border-radius:4px;
+  }
+  button:hover{border-color:var(--accent);}
+  button.primary{background:var(--accent); color:#fff; border-color:var(--accent);}
+  button.primary:hover{background:var(--accent-dark);}
+  button.danger{color:var(--danger); border-color:var(--danger);}
+  button.small{padding:4px 8px; font-size:12px;}
+  .layout{display:flex; min-height:calc(100vh - 54px);}
+  .sidebar{
+    width:320px; flex-shrink:0; border-right:1px solid var(--line);
+    background:var(--panel); overflow-y:auto; padding:10px;
+  }
+  .main{flex:1; padding:20px; overflow-y:auto;}
+  .tree-cat{margin-bottom:6px; border:1px solid var(--line); border-radius:5px; overflow:hidden;}
+  .tree-cat > .row{background:#eef0e6;}
+  .row{
+    display:flex; align-items:center; justify-content:space-between; gap:6px;
+    padding:7px 10px; cursor:pointer; border-bottom:1px solid transparent;
+  }
+  .row:hover{background:#f1efe4;}
+  .row.active{background:var(--accent); color:#fff;}
+  .row .label{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;}
+  .row .count{font-size:11px; opacity:.7; margin-left:4px;}
+  .indent-1{padding-left:22px;}
+  .indent-2{padding-left:38px;}
+  .addrow{padding:6px 10px 6px 22px;}
+  .addrow.esp{padding-left:38px;}
+  .empty-hint{color:var(--muted); font-style:italic; padding:20px; text-align:center;}
+  h2{font-size:20px; margin:0 0 4px;}
+  h3{font-size:14px; text-transform:none; color:var(--muted); margin:24px 0 10px; border-bottom:1px solid var(--line); padding-bottom:4px;}
+  .field{margin-bottom:12px;}
+  .field label{display:block; font-size:12px; color:var(--muted); margin-bottom:4px;}
+  .field input, .field textarea, .field select{
+    width:100%; padding:8px; border:1px solid var(--line); border-radius:4px; font:inherit; background:#fff;
+  }
+  .field textarea{min-height:70px; resize:vertical; font-family:inherit;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;}
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:20px; max-width:720px;}
+  .actions{margin-top:16px; display:flex; gap:8px;}
+  .breadcrumb{font-size:12px; color:var(--muted); margin-bottom:8px;}
+  .toast{
+    position:fixed; bottom:16px; right:16px; background:var(--accent-dark); color:#fff;
+    padding:10px 16px; border-radius:5px; font-size:13px; opacity:0; transform:translateY(8px);
+    transition:.2s; pointer-events:none;
+  }
+  .toast.show{opacity:1; transform:translateY(0);}
+  .filepicker-warning{font-size:12px; background:#fff6e0; border:1px solid var(--warn); color:#6b5117; padding:8px 10px; border-radius:4px; margin-bottom:14px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🌱 Admin catalogue</h1>
+  <div class="status" id="statusLabel">Aucun fichier chargé</div>
+  <div class="btnbar">
+    <button id="btnOpen">Ouvrir catalogue.json</button>
+    <button id="btnNew">Nouveau catalogue</button>
+    <button id="btnSave" class="primary">Enregistrer</button>
+    <button id="btnDownload">Télécharger le JSON</button>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main" id="main">
+    <div class="empty-hint">Ouvre ton fichier data/catalogue.json (ou crée un nouveau catalogue) pour commencer.</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<input type="file" id="fileInput" accept="application/json" style="display:none;">
+
+<script>
+/* ---------- État ---------- */
+let data = null;
+let fileHandle = null; // File System Access API handle (Chrome/Edge)
+let selection = null;  // {type:'meta'|'category'|'espece'|'variete', catId, espId, varId}
+
+const emptyData = () => ({
+  meta:{titre:"Catalogue des plants", sous_titre:"", annee:new Date().getFullYear(),
+        preface:"", quatrieme_couverture:"",
+        contact:{nom:"",email:"",telephone:"",adresse:""}},
+  categories:[]
+});
+
+const slugify = s => (s||"").toString().toLowerCase().trim()
+  .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+  .replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"") || ("id-"+Date.now());
+
+function uniqueId(base, existingIds){
+  let id = slugify(base), i=2;
+  while(existingIds.includes(id)){ id = slugify(base)+"-"+i; i++; }
+  return id;
+}
+
+/* ---------- Chargement / sauvegarde ---------- */
+document.getElementById('btnOpen').onclick = async () => {
+  if(window.showOpenFilePicker){
+    try{
+      const [handle] = await window.showOpenFilePicker({types:[{description:'JSON', accept:{'application/json':['.json']}}]});
+      fileHandle = handle;
+      const file = await handle.getFile();
+      loadFromText(await file.text(), file.name);
+    }catch(e){ if(e.name!=='AbortError') console.error(e); }
+  } else {
+    document.getElementById('fileInput').click();
+  }
+};
+
+document.getElementById('fileInput').onchange = (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => loadFromText(reader.result, file.name);
+  reader.readAsText(file);
+};
+
+function loadFromText(text, name){
+  try{
+    data = JSON.parse(text);
+    if(!data.categories) data.categories = [];
+    if(!data.meta) data.meta = emptyData().meta;
+    selection = {type:'meta'};
+    setStatus("Chargé : " + name);
+    renderAll();
+    toast("Catalogue chargé");
+  }catch(err){
+    alert("Fichier JSON invalide : " + err.message);
+  }
+}
+
+document.getElementById('btnNew').onclick = () => {
+  if(data && !confirm("Créer un nouveau catalogue vide ? Les données non enregistrées seront perdues.")) return;
+  data = emptyData();
+  fileHandle = null;
+  selection = {type:'meta'};
+  setStatus("Nouveau catalogue (non enregistré)");
+  renderAll();
+};
+
+document.getElementById('btnSave').onclick = async () => {
+  if(!data) return;
+  const text = JSON.stringify(data, null, 2);
+  if(fileHandle){
+    try{
+      const writable = await fileHandle.createWritable();
+      await writable.write(text);
+      await writable.close();
+      toast("Enregistré dans " + fileHandle.name);
+      return;
+    }catch(e){ console.error(e); }
+  }
+  // Pas de handle (Firefox/Safari, ou nouveau catalogue) → proposer d'en créer un ou télécharger
+  if(window.showSaveFilePicker){
+    try{
+      const handle = await window.showSaveFilePicker({
+        suggestedName:'catalogue.json',
+        types:[{description:'JSON', accept:{'application/json':['.json']}}]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+      fileHandle = handle;
+      setStatus("Enregistré : " + handle.name);
+      toast("Enregistré");
+      return;
+    }catch(e){ if(e.name!=='AbortError') console.error(e); return; }
+  }
+  downloadJson();
+};
+
+document.getElementById('btnDownload').onclick = downloadJson;
+function downloadJson(){
+  if(!data) return;
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'catalogue.json'; a.click();
+  URL.revokeObjectURL(url);
+  toast("Téléchargement lancé");
+}
+
+function setStatus(s){ document.getElementById('statusLabel').textContent = s; }
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+/* ---------- Rendu de l'arbre ---------- */
+function renderAll(){ renderSidebar(); renderMain(); }
+
+function renderSidebar(){
+  const sb = document.getElementById('sidebar');
+  sb.innerHTML = '';
+  if(!data){ return; }
+
+  const metaRow = rowEl('📖 Informations du catalogue', sel('meta'), selection && selection.type==='meta');
+  sb.appendChild(metaRow);
+
+  data.categories.sort((a,b)=>(a.ordre||0)-(b.ordre||0)).forEach(cat=>{
+    const catWrap = document.createElement('div');
+    catWrap.className = 'tree-cat';
+
+    const catRow = rowEl('📁 ' + (cat.nom||'(sans nom)'), sel('category',cat.id), isSel('category',cat.id), cat.especes.length);
+    catWrap.appendChild(catRow);
+
+    (cat.especes||[]).forEach(esp=>{
+      const espRow = rowEl('🌿 ' + (esp.nom||'(sans nom)'), sel('espece',cat.id,esp.id), isSel('espece',cat.id,esp.id), esp.varietes.length, 1);
+      catWrap.appendChild(espRow);
+      (esp.varietes||[]).forEach(v=>{
+        const vRow = rowEl(v.nom||'(sans nom)', sel('variete',cat.id,esp.id,v.id), isSel('variete',cat.id,esp.id,v.id), null, 2);
+        catWrap.appendChild(vRow);
+      });
+      const addV = document.createElement('div');
+      addV.className = 'row addrow esp'; addV.textContent = '+ Ajouter une variété';
+      addV.onclick = ()=> addVariete(cat.id, esp.id);
+      catWrap.appendChild(addV);
+    });
+
+    const addE = document.createElement('div');
+    addE.className = 'row addrow'; addE.textContent = '+ Ajouter une espèce';
+    addE.onclick = ()=> addEspece(cat.id);
+    catWrap.appendChild(addE);
+
+    sb.appendChild(catWrap);
+  });
+
+  const addC = document.createElement('div');
+  addC.className = 'row'; addC.style.marginTop='8px'; addC.style.fontWeight='600';
+  addC.textContent = '+ Ajouter une catégorie';
+  addC.onclick = addCategory;
+  sb.appendChild(addC);
+}
+
+function rowEl(label, selObj, active, count, indent){
+  const div = document.createElement('div');
+  div.className = 'row' + (active?' active':'') + (indent? ' indent-'+indent : '');
+  const span = document.createElement('span'); span.className='label'; span.textContent = label;
+  div.appendChild(span);
+  if(count!==null && count!==undefined){
+    const c = document.createElement('span'); c.className='count'; c.textContent = count;
+    div.appendChild(c);
+  }
+  div.onclick = ()=>{ selection = selObj; renderAll(); };
+  return div;
+}
+function sel(type, catId, espId, varId){ return {type, catId, espId, varId}; }
+function isSel(type, catId, espId, varId){
+  return selection && selection.type===type && selection.catId===catId &&
+    selection.espId===espId && selection.varId===varId;
+}
+
+/* ---------- Recherche d'objets ---------- */
+function getCat(id){ return data.categories.find(c=>c.id===id); }
+function getEsp(catId,espId){ return getCat(catId)?.especes.find(e=>e.id===espId); }
+function getVar(catId,espId,varId){ return getEsp(catId,espId)?.varietes.find(v=>v.id===varId); }
+
+/* ---------- Ajouts ---------- */
+function addCategory(){
+  const nom = prompt("Nom de la catégorie (ex : Plants maraîchers)");
+  if(!nom) return;
+  const id = uniqueId(nom, data.categories.map(c=>c.id));
+  data.categories.push({id, nom, description:"", ordre:data.categories.length+1, especes:[]});
+  selection = sel('category', id);
+  renderAll();
+}
+function addEspece(catId){
+  const cat = getCat(catId);
+  const nom = prompt("Nom de l'espèce (ex : Tomate)");
+  if(!nom) return;
+  const id = uniqueId(nom, cat.especes.map(e=>e.id));
+  cat.especes.push({id, nom, nom_latin:"", description:"", varietes:[]});
+  selection = sel('espece', catId, id);
+  renderAll();
+}
+function addVariete(catId, espId){
+  const esp = getEsp(catId, espId);
+  const nom = prompt("Nom de la variété");
+  if(!nom) return;
+  const id = uniqueId(esp.id+'-'+nom, esp.varietes.map(v=>v.id));
+  esp.varietes.push({id, nom, description_courte:"", description_longue:"",
+    caracteristiques:{exposition:"",periode_semis:"",periode_plantation:"",cycle_jours:"",couleur:"",hauteur:"",particularites:""},
+    image:""});
+  selection = sel('variete', catId, espId, id);
+  renderAll();
+}
+
+/* ---------- Panneau principal ---------- */
+function renderMain(){
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  if(!data || !selection){ main.innerHTML = '<div class="empty-hint">Sélectionne un élément dans la liste.</div>'; return; }
+
+  if(selection.type==='meta') return renderMetaPanel(main);
+  if(selection.type==='category') return renderCategoryPanel(main);
+  if(selection.type==='espece') return renderEspecePanel(main);
+  if(selection.type==='variete') return renderVarietePanel(main);
+}
+
+function field(label, value, onInput, type='text'){
+  const wrap = document.createElement('div'); wrap.className='field';
+  const l = document.createElement('label'); l.textContent = label;
+  const input = type==='textarea' ? document.createElement('textarea') : document.createElement('input');
+  if(type!=='textarea') input.type = type;
+  input.value = value||'';
+  input.oninput = ()=> onInput(input.value);
+  wrap.appendChild(l); wrap.appendChild(input);
+  return wrap;
+}
+
+function panelHeader(main, title, breadcrumb){
+  const panel = document.createElement('div'); panel.className='panel';
+  if(breadcrumb){ const bc=document.createElement('div'); bc.className='breadcrumb'; bc.textContent=breadcrumb; panel.appendChild(bc); }
+  const h = document.createElement('h2'); h.textContent = title; panel.appendChild(h);
+  main.appendChild(panel);
+  return panel;
+}
+
+function renderMetaPanel(main){
+  const panel = panelHeader(main, "Informations générales du catalogue");
+  panel.appendChild(field("Titre du catalogue", data.meta.titre, v=>data.meta.titre=v));
+  panel.appendChild(field("Sous-titre", data.meta.sous_titre, v=>data.meta.sous_titre=v));
+  panel.appendChild(field("Année", data.meta.annee, v=>data.meta.annee=v, 'number'));
+
+  const h3a = document.createElement('h3'); h3a.textContent='Préface'; panel.appendChild(h3a);
+  panel.appendChild(field("Texte de préface", data.meta.preface, v=>data.meta.preface=v, 'textarea'));
+
+  const h3b = document.createElement('h3'); h3b.textContent='Quatrième de couverture'; panel.appendChild(h3b);
+  panel.appendChild(field("Texte de 4e de couverture", data.meta.quatrieme_couverture, v=>data.meta.quatrieme_couverture=v, 'textarea'));
+
+  const h3c = document.createElement('h3'); h3c.textContent='Contact'; panel.appendChild(h3c);
+  const grid = document.createElement('div'); grid.className='grid2';
+  grid.appendChild(field("Nom de la ferme", data.meta.contact.nom, v=>data.meta.contact.nom=v));
+  grid.appendChild(field("Email", data.meta.contact.email, v=>data.meta.contact.email=v));
+  grid.appendChild(field("Téléphone", data.meta.contact.telephone, v=>data.meta.contact.telephone=v));
+  grid.appendChild(field("Adresse", data.meta.contact.adresse, v=>data.meta.contact.adresse=v));
+  panel.appendChild(grid);
+}
+
+function renderCategoryPanel(main){
+  const cat = getCat(selection.catId);
+  const panel = panelHeader(main, "Catégorie", "Catalogue");
+  panel.appendChild(field("Nom", cat.nom, v=>{cat.nom=v; renderSidebar();}));
+  panel.appendChild(field("Description courte", cat.description, v=>cat.description=v, 'textarea'));
+  panel.appendChild(field("Ordre d'affichage", cat.ordre, v=>cat.ordre=parseInt(v)||0, 'number'));
+  addDeleteAction(panel, `Supprimer la catégorie "${cat.nom}" et tout son contenu ?`, ()=>{
+    data.categories = data.categories.filter(c=>c.id!==cat.id);
+    selection = {type:'meta'};
+    renderAll();
+  });
+}
+
+function renderEspecePanel(main){
+  const cat = getCat(selection.catId), esp = getEsp(selection.catId, selection.espId);
+  const panel = panelHeader(main, "Espèce", cat.nom);
+  panel.appendChild(field("Nom", esp.nom, v=>{esp.nom=v; renderSidebar();}));
+  panel.appendChild(field("Nom latin", esp.nom_latin, v=>esp.nom_latin=v));
+  panel.appendChild(field("Description", esp.description, v=>esp.description=v, 'textarea'));
+  addDeleteAction(panel, `Supprimer l'espèce "${esp.nom}" et ses variétés ?`, ()=>{
+    cat.especes = cat.especes.filter(e=>e.id!==esp.id);
+    selection = sel('category', cat.id);
+    renderAll();
+  });
+}
+
+function renderVarietePanel(main){
+  const cat = getCat(selection.catId), esp = getEsp(selection.catId, selection.espId);
+  const v = getVar(selection.catId, selection.espId, selection.varId);
+  const panel = panelHeader(main, "Variété", cat.nom + ' › ' + esp.nom);
+  panel.appendChild(field("Nom", v.nom, val=>{v.nom=val; renderSidebar();}));
+  panel.appendChild(field("Description courte (liste catalogue)", v.description_courte, val=>v.description_courte=val, 'textarea'));
+  panel.appendChild(field("Description longue (fiche détaillée)", v.description_longue, val=>v.description_longue=val, 'textarea'));
+
+  const h3 = document.createElement('h3'); h3.textContent='Caractéristiques'; panel.appendChild(h3);
+  const c = v.caracteristiques || (v.caracteristiques={});
+  const g3 = document.createElement('div'); g3.className='grid3';
+  g3.appendChild(field("Exposition", c.exposition, val=>c.exposition=val));
+  g3.appendChild(field("Période de semis", c.periode_semis, val=>c.periode_semis=val));
+  g3.appendChild(field("Période de plantation", c.periode_plantation, val=>c.periode_plantation=val));
+  g3.appendChild(field("Cycle (jours)", c.cycle_jours, val=>c.cycle_jours=val, 'number'));
+  g3.appendChild(field("Couleur", c.couleur, val=>c.couleur=val));
+  g3.appendChild(field("Hauteur", c.hauteur, val=>c.hauteur=val));
+  panel.appendChild(g3);
+  panel.appendChild(field("Particularités", c.particularites, val=>c.particularites=val, 'textarea'));
+
+  const h3b = document.createElement('h3'); h3b.textContent='Image'; panel.appendChild(h3b);
+  panel.appendChild(field("Nom du fichier image (à placer dans /images)", v.image, val=>v.image=val));
+
+  addDeleteAction(panel, `Supprimer la variété "${v.nom}" ?`, ()=>{
+    esp.varietes = esp.varietes.filter(x=>x.id!==v.id);
+    selection = sel('espece', cat.id, esp.id);
+    renderAll();
+  });
+}
+
+function addDeleteAction(panel, confirmMsg, onConfirm){
+  const actions = document.createElement('div'); actions.className='actions';
+  const btn = document.createElement('button'); btn.className='danger'; btn.textContent='Supprimer';
+  btn.onclick = ()=>{ if(confirm(confirmMsg)) onConfirm(); };
+  actions.appendChild(btn);
+  panel.appendChild(actions);
+}
+
+/* ---------- Init ---------- */
+if(!window.showOpenFilePicker){
+  const w = document.createElement('div');
+  // Affiché seulement si on charge un jour un panel ; on informe simplement au premier rendu.
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catalogue des plants</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f1eee2; --paper:#fbfaf5; --ink:#1f2a1e; --muted:#5c6b58;
+    --green:#3e6b4f; --green-dark:#2c4a38; --gold:#b8862f; --line:#d8d2be;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Work Sans', sans-serif; line-height:1.55;
+  }
+  h1,h2,h3{font-family:'Fraunces', serif; font-weight:600; margin:0;}
+  .wrap{max-width:900px; margin:0 auto; padding:0 24px;}
+
+  header.hero{
+    padding:80px 0 60px; border-bottom:1px solid var(--line);
+  }
+  header.hero .eyebrow{font-size:13px; color:var(--green); margin-bottom:10px;}
+  header.hero h1{font-size:clamp(34px,6vw,56px); line-height:1.05; max-width:14ch;}
+  header.hero .soustitre{font-size:18px; color:var(--muted); margin-top:10px; font-style:italic;}
+
+  .preface{
+    padding:48px 0; max-width:640px;
+  }
+  .preface p{font-size:17px; max-width:62ch;}
+
+  nav.toc{
+    display:flex; flex-wrap:wrap; gap:8px 18px; padding:20px 0 40px;
+    border-bottom:1px solid var(--line); margin-bottom:10px;
+  }
+  nav.toc a{color:var(--green-dark); text-decoration:none; font-size:14px; border-bottom:1px solid transparent;}
+  nav.toc a:hover{border-color:var(--green-dark);}
+
+  section.categorie{padding:56px 0; border-bottom:1px solid var(--line);}
+  section.categorie h2{font-size:30px; color:var(--green-dark);}
+  section.categorie > .cat-desc{color:var(--muted); margin-top:8px; max-width:56ch;}
+
+  .espece{margin-top:40px;}
+  .espece h3{font-size:20px; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
+  .espece .latin{font-style:italic; font-weight:400; color:var(--muted); font-size:15px;}
+  .espece-desc{color:var(--muted); font-size:14px; margin-top:4px; max-width:56ch;}
+
+  .variete{
+    border-top:1px solid var(--line); padding:20px 0; display:grid;
+    grid-template-columns:1fr; gap:6px;
+  }
+  .variete h4{font-family:'Fraunces', serif; font-weight:500; font-size:18px; margin:0;}
+  .variete .desc-courte{font-size:15px; color:var(--ink); margin:2px 0 0;}
+  .variete .desc-longue{font-size:14px; color:var(--muted); margin:8px 0 0; max-width:60ch;}
+  .carac{
+    display:flex; flex-wrap:wrap; gap:14px 22px; margin-top:10px;
+  }
+  .carac .item{font-size:12.5px; color:var(--muted);}
+  .carac .item b{color:var(--ink); font-weight:500; display:block; font-size:11px; margin-bottom:1px;}
+
+  footer.back-cover{
+    padding:70px 0 90px;
+  }
+  footer.back-cover h2{font-size:24px; color:var(--green-dark); margin-bottom:14px;}
+  footer.back-cover p{max-width:56ch; color:var(--muted);}
+  .contact-block{
+    margin-top:28px; background:var(--paper); border:1px solid var(--line);
+    padding:20px 24px; max-width:420px; font-size:14px;
+  }
+  .contact-block div{margin-bottom:4px;}
+  .contact-block b{font-family:'Fraunces', serif; font-size:16px; display:block; margin-bottom:6px;}
+
+  .empty-hint{padding:60px 24px; color:var(--muted); text-align:center;}
+</style>
+</head>
+<body>
+
+<div id="content">
+  <div class="empty-hint">Chargement du catalogue…</div>
+</div>
+
+<script>
+async function init(){
+  const root = document.getElementById('content');
+  let data;
+  try{
+    const res = await fetch('data/catalogue.json');
+    if(!res.ok) throw new Error('introuvable');
+    data = await res.json();
+  }catch(e){
+    root.innerHTML = '<div class="empty-hint">Impossible de charger data/catalogue.json. Si tu regardes ce fichier en local, lance un petit serveur (ex : <code>python -m http.server</code>) plutôt que d\'ouvrir le fichier directement.</div>';
+    return;
+  }
+  root.innerHTML = '';
+  root.appendChild(renderHero(data.meta));
+  root.appendChild(renderPreface(data.meta));
+  root.appendChild(renderToc(data.categories));
+  data.categories.sort((a,b)=>(a.ordre||0)-(b.ordre||0)).forEach(cat=>{
+    root.appendChild(renderCategorie(cat));
+  });
+  root.appendChild(renderFooter(data.meta));
+}
+
+function el(tag, cls, html){
+  const e = document.createElement(tag);
+  if(cls) e.className = cls;
+  if(html!==undefined) e.innerHTML = html;
+  return e;
+}
+
+function renderHero(meta){
+  const h = el('header','hero');
+  h.appendChild(el('div','wrap',
+    `<div class="eyebrow">Catalogue ${meta.annee||''}</div>
+     <h1>${meta.titre||'Catalogue des plants'}</h1>
+     ${meta.sous_titre? `<div class="soustitre">${meta.sous_titre}</div>`:''}`
+  ));
+  return h;
+}
+
+function renderPreface(meta){
+  if(!meta.preface) return el('div');
+  const s = el('section','preface');
+  s.appendChild(el('div','wrap', `<p>${meta.preface}</p>`));
+  return s;
+}
+
+function renderToc(categories){
+  const nav = el('nav','toc wrap');
+  categories.sort((a,b)=>(a.ordre||0)-(b.ordre||0)).forEach(cat=>{
+    const a = el('a', null, cat.nom);
+    a.href = '#cat-'+cat.id;
+    nav.appendChild(a);
+  });
+  const wrap = el('div');
+  wrap.appendChild(nav);
+  return wrap;
+}
+
+function renderCategorie(cat){
+  const s = el('section','categorie');
+  s.id = 'cat-'+cat.id;
+  const wrap = el('div','wrap');
+  wrap.appendChild(el('h2', null, cat.nom));
+  if(cat.description) wrap.appendChild(el('div','cat-desc', cat.description));
+
+  (cat.especes||[]).forEach(esp=>{
+    const espDiv = el('div','espece');
+    espDiv.appendChild(el('h3', null,
+      esp.nom + (esp.nom_latin? ` <span class="latin">${esp.nom_latin}</span>`:'')));
+    if(esp.description) espDiv.appendChild(el('div','espece-desc', esp.description));
+
+    (esp.varietes||[]).forEach(v=>{
+      espDiv.appendChild(renderVariete(v));
+    });
+    wrap.appendChild(espDiv);
+  });
+  s.appendChild(wrap);
+  return s;
+}
+
+function renderVariete(v){
+  const c = v.caracteristiques || {};
+  const div = el('div','variete');
+  div.appendChild(el('h4', null, v.nom));
+  if(v.description_courte) div.appendChild(el('p','desc-courte', v.description_courte));
+  if(v.description_longue) div.appendChild(el('p','desc-longue', v.description_longue));
+
+  const items = [
+    ['Exposition', c.exposition],
+    ['Semis', c.periode_semis],
+    ['Plantation', c.periode_plantation],
+    ['Cycle', c.cycle_jours? c.cycle_jours+' jours': ''],
+    ['Couleur', c.couleur],
+    ['Hauteur', c.hauteur],
+  ].filter(([,val])=>val);
+  if(items.length){
+    const carac = el('div','carac');
+    items.forEach(([label,val])=>{
+      carac.appendChild(el('div','item', `<b>${label}</b>${val}`));
+    });
+    div.appendChild(carac);
+  }
+  if(c.particularites){
+    div.appendChild(el('p','desc-longue', c.particularites));
+  }
+  return div;
+}
+
+function renderFooter(meta){
+  const f = el('footer','back-cover');
+  const wrap = el('div','wrap');
+  if(meta.quatrieme_couverture){
+    wrap.appendChild(el('h2', null, 'À propos'));
+    wrap.appendChild(el('p', null, meta.quatrieme_couverture));
+  }
+  const ct = meta.contact || {};
+  if(ct.nom || ct.email || ct.telephone || ct.adresse){
+    const block = el('div','contact-block');
+    let html = ct.nom? `<b>${ct.nom}</b>`:'';
+    if(ct.adresse) html += `<div>${ct.adresse}</div>`;
+    if(ct.telephone) html += `<div>${ct.telephone}</div>`;
+    if(ct.email) html += `<div>${ct.email}</div>`;
+    block.innerHTML = html;
+    wrap.appendChild(block);
+  }
+  f.appendChild(wrap);
+  return f;
+}
+
+init();
+</script>
+</body>
+</html>
