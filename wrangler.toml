@@ -1,0 +1,10 @@
+name = "plants-catalogue"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "."
+
+# Remplace "id" par l'identifiant réel de ton namespace KV
+# (donné après "wrangler kv namespace create DATA_KV", ou visible
+# dans le tableau de bord Cloudflare > Workers & Pages > KV).
+[[kv_namespaces]]
+binding = "DATA_KV"
+id = "PLACEHOLDER_REMPLACE_MOI"
