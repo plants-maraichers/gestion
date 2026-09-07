@@ -1,72 +1,94 @@
-# Catalogue des plants
+# Catalogue des plants — gestion partagée (Cloudflare)
 
-## Comment ça marche
+## Pourquoi ça a changé
 
-- `data/catalogue.json` : toutes les données (catégories, espèces, variétés, préface, 4e de couverture).
-- `admin.html` : outil local pour éditer ces données avec des formulaires, **sans rien installer**.
-- `index.html` : le catalogue public, tel qu'il sera vu en ligne.
+Au départ, les données vivaient dans des fichiers JSON locaux (édités puis poussés sur GitHub Pages). Ça marche pour une personne, mais pas pour une équipe : chaque ordinateur avait sa propre copie du fichier.
 
-## Utilisation au quotidien
+Maintenant, les données vivent **en ligne**, dans une base Cloudflare KV. Tous les ordinateurs de l'équipe lisent et écrivent la **même** base via une petite API. GitHub Pages ne peut pas faire tourner cette API (site 100% statique) — on héberge donc désormais sur **Cloudflare Pages**, qui sait faire les deux (site + API) et qui peut quand même se déployer automatiquement depuis ton dépôt GitHub.
 
-1. Ouvre `admin.html` en double-cliquant dessus (ça s'ouvre dans ton navigateur).
-2. Clique **Ouvrir catalogue.json** et sélectionne `data/catalogue.json`.
-   - Sur Chrome ou Edge : le bouton **Enregistrer** réécrit directement le fichier.
-   - Sur Firefox/Safari (pas de support de l'édition directe de fichier) : utilise **Télécharger le JSON** puis remplace le fichier `data/catalogue.json` manuellement par celui téléchargé.
-3. Ajoute/modifie tes catégories, espèces, variétés, la préface, la 4e de couverture, le contact.
-4. Enregistre.
-5. Vérifie le rendu : ouvre un terminal dans le dossier et lance
-   ```
-   python -m http.server
-   ```
-   puis va sur `http://localhost:8000` dans ton navigateur (nécessaire car `index.html` charge le JSON via `fetch`, ce qui ne marche pas si tu ouvres juste le fichier directement).
-6. Si c'est bon, publie (voir plus bas).
+Ce n'est pas de l'édition simultanée "en live" (deux personnes qui tapent au même endroit à la même seconde) — mais chacun voit toujours la dernière version publiée, depuis n'importe quel poste, ce qui correspond à votre besoin.
 
-## Publier sur GitHub Pages
-
-1. Crée un dépôt GitHub (ex : `catalogue-plants`).
-2. Mets-y `index.html`, le dossier `data/`, et si tu veux `admin.html` (il peut rester dans le repo, ça ne gêne pas — mais tu peux aussi le garder seulement sur ton ordi si tu préfères qu'il reste privé).
-3. Dans les paramètres du dépôt → **Pages** → Source : branche `main`, dossier `/ (root)`.
-4. Ton catalogue sera visible à `https://<ton-compte>.github.io/<nom-du-repo>/`.
-5. À chaque mise à jour : édite en local avec `admin.html`, puis commit + push le nouveau `data/catalogue.json`.
-
-Alternative Cloudflare Pages : tu connectes le même dépôt GitHub, build command vide, dossier de sortie = racine. Utile si tu veux un domaine perso facilement ou si tu ajoutes plus tard des fonctions serveur (Cloudflare Workers) pour d'autres briques.
-
-## Structure des données
+## Structure du projet
 
 ```
-catalogue.json
-├── meta (titre, préface, 4e de couverture, contact)
-└── categories[]
-    ├── id, nom, description, ordre
-    └── especes[]
-        ├── id, nom, nom_latin, description
-        └── varietes[]
-            ├── id, nom, description_courte, description_longue, image
-            └── caracteristiques (exposition, semis, plantation, cycle, couleur, hauteur, particularités)
+plants-catalogue/
+├── index.html              # catalogue public
+├── admin.html               # édition du catalogue (catégories/espèces/variétés)
+├── admin-gestion.html       # édition stocks / prix / canaux / charges / ventes
+├── functions/
+│   └── api/data/[key].js    # API : GET/PUT vers KV (clé "catalogue" ou "gestion")
+├── data/
+│   ├── catalogue.json       # copie de secours locale (plus la source en direct)
+│   └── gestion.json         # idem
+├── wrangler.toml            # config pour tester en local
+└── README.md
 ```
 
-## Brique 2 : stocks, prix, canaux, charges, ventes
+## Mise en place (une seule fois)
 
-- `data/gestion.json` : toutes ces données, dans un seul fichier.
-- `admin-gestion.html` : l'outil d'édition, à ouvrir comme `admin.html`.
+1. **Pousse le dossier sur GitHub** comme avant (`git add . && git commit -m "..." && git push`).
 
-Utilisation :
+2. **Crée un compte Cloudflare** (gratuit) sur cloudflare.com si tu n'en as pas.
 
-1. Ouvre `admin-gestion.html` dans le navigateur.
-2. Bouton **1. Charger catalogue.json** → sélectionne `data/catalogue.json` (lecture seule, juste pour avoir la liste des variétés dans les menus déroulants).
-3. Bouton **2. Ouvrir gestion.json** → sélectionne `data/gestion.json`.
-4. Onglets disponibles :
-   - **Canaux** : tes points de vente (marché, magasin, AMAP...).
-   - **Stock & coûts** : par variété, quantité estimée / réellement produite, coût de production unitaire estimé / réel. Le **disponible** est calculé automatiquement (produit − vendu), jamais à corriger à la main.
-   - **Prix par canal** : un prix différent possible par variété × canal.
-   - **Charges globales** : les charges de saison non rattachées à une variété précise (eau, structure...), montant estimé et réel.
-   - **Ventes** : formulaire de saisie rapide (variété, canal, quantité, prix pré-rempli depuis l'onglet Prix, mais modifiable), historique complet, suppression possible.
-   - **Tableau de bord** : CA estimé vs réel, coûts de production estimés vs réels, marge estimée vs réelle, et le disponible par variété d'un coup d'œil.
-5. **Enregistrer** réécrit directement `data/gestion.json` (Chrome/Edge) ou propose de le télécharger (Firefox/Safari, comme pour `admin.html`).
+3. **Crée le namespace KV** :
+   - Dashboard Cloudflare → **Workers & Pages** → onglet **KV** → **Create namespace**.
+   - Nomme-le par exemple `plants-catalogue-data`.
 
-Un exemple est déjà rempli dans `data/gestion.json` (2 variétés, 3 canaux, 2 charges) pour que tu voies le format — remplace-le par tes vraies données au fur et à mesure.
+4. **Crée le projet Pages connecté à GitHub** :
+   - Dashboard Cloudflare → **Workers & Pages** → **Create application** → **Pages** → **Connect to Git**.
+   - Choisis ton dépôt GitHub (`gestion` ou peu importe son nom).
+   - Build command : laisse vide. Dossier de sortie (`Build output directory`) : `/` (racine).
+   - Déploie.
+
+5. **Relie le namespace KV au projet** :
+   - Dans le projet Pages → **Settings** → **Functions** → **KV namespace bindings** → **Add binding**.
+   - Variable name : `DATA_KV` (exactement ce nom, c'est celui utilisé dans le code).
+   - KV namespace : celui créé à l'étape 3.
+
+6. **Ajoute la clé d'équipe** (le mot de passe partagé pour pouvoir écrire) :
+   - Toujours dans **Settings** → **Environment variables** → **Add variable**.
+   - Nom : `ADMIN_KEY`. Valeur : un mot de passe que tu choisis (ex : une phrase que toute l'équipe connaîtra). Coche **Encrypt** pour que ce soit un secret.
+   - Fais-le pour les deux environnements (Production **et** Preview) si Cloudflare te les propose séparément.
+
+7. **Redéploie** une fois (Settings → Deployments → ... → Retry deployment) pour que les nouvelles liaisons prennent effet.
+
+Ton site est en ligne à une adresse du type `https://plants-catalogue.pages.dev` (ou ton domaine perso si tu en configures un dans Settings → Custom domains).
+
+## Premier remplissage des données
+
+La base KV démarre vide. Pour l'amorcer avec ce qui est déjà dans `data/catalogue.json` et `data/gestion.json` :
+
+1. Ouvre `https://ton-site.pages.dev/admin.html`.
+2. Entre la **clé d'équipe** (celle mise dans `ADMIN_KEY`).
+3. **Importer un fichier JSON** → sélectionne `data/catalogue.json`.
+4. **Enregistrer** → ça publie ces données dans KV.
+5. Fais pareil sur `admin-gestion.html` avec `data/gestion.json`.
+
+Ensuite, plus besoin d'importer : `admin.html` et `admin-gestion.html` chargent automatiquement les données en ligne à l'ouverture.
+
+## Utilisation au quotidien (toute l'équipe)
+
+1. Va sur `https://ton-site.pages.dev/admin.html` (catalogue) ou `admin-gestion.html` (stocks/ventes/CA).
+2. Entre la clé d'équipe une fois — elle reste mémorisée dans ce navigateur.
+3. Édite, clique **Enregistrer**. C'est immédiatement visible par tous les autres postes.
+4. **Télécharger (sauvegarde)** reste disponible à tout moment pour garder une copie locale de secours.
+
+Le catalogue public (`index.html`) se met à jour automatiquement, sans rien à faire de plus.
+
+## Tester en local avant de déployer
+
+```
+npm install -g wrangler
+wrangler pages dev .
+```
+
+Remplace d'abord dans `wrangler.toml` le `id` du namespace KV par le vrai identifiant (visible dans le dashboard Cloudflare, ou récupérable avec `wrangler kv namespace create DATA_KV` si tu veux un namespace de test séparé). Sans cette étape, l'API renverra une erreur de configuration en local — normal, `wrangler pages dev` a besoin de savoir à quelle base KV se connecter.
+
+## Sécurité — à savoir
+
+La clé d'équipe protège l'écriture (impossible de modifier les données sans elle), mais la lecture du catalogue est publique par nature (n'importe qui peut voir `index.html`, c'est voulu). Ce n'est pas un système de comptes individuels : tout le monde dans l'équipe utilise la même clé. Si un jour tu veux des comptes nominatifs (savoir qui a modifié quoi), il faudra passer à quelque chose comme Cloudflare Access — dis-le si ça devient un besoin.
 
 ## Prochaine brique possible
 
-- Un export du catalogue en PDF (pour impression) réutilisant `data/catalogue.json`.
-- Une vue publique du disponible en temps réel sur `index.html`, si tu veux un jour l'afficher aux clients (actuellement le tableau de bord reste un outil interne, pas publié).
+- Export du catalogue en PDF (préface, 2e de couverture, fiches variétés).
+- Historique des modifications (qui a changé quoi, et quand).

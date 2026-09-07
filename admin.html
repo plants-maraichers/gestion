@@ -78,12 +78,12 @@
 
 <header>
   <h1>🌱 Admin catalogue</h1>
-  <div class="status" id="statusLabel">Aucun fichier chargé</div>
+  <div class="status" id="statusLabel">Connexion…</div>
   <div class="btnbar">
-    <button id="btnOpen">Ouvrir catalogue.json</button>
-    <button id="btnNew">Nouveau catalogue</button>
+    <input type="password" id="adminKey" placeholder="Clé d'équipe" style="padding:6px 8px;border-radius:4px;border:1px solid var(--line);width:150px;">
+    <button id="btnImport">Importer un fichier JSON</button>
     <button id="btnSave" class="primary">Enregistrer</button>
-    <button id="btnDownload">Télécharger le JSON</button>
+    <button id="btnDownload">Télécharger (sauvegarde)</button>
   </div>
 </header>
 
@@ -101,7 +101,6 @@
 <script>
 /* ---------- État ---------- */
 let data = null;
-let fileHandle = null; // File System Access API handle (Chrome/Edge)
 let selection = null;  // {type:'meta'|'category'|'espece'|'variete', catId, espId, varId}
 
 const emptyData = () => ({
@@ -121,80 +120,72 @@ function uniqueId(base, existingIds){
   return id;
 }
 
-/* ---------- Chargement / sauvegarde ---------- */
-document.getElementById('btnOpen').onclick = async () => {
-  if(window.showOpenFilePicker){
-    try{
-      const [handle] = await window.showOpenFilePicker({types:[{description:'JSON', accept:{'application/json':['.json']}}]});
-      fileHandle = handle;
-      const file = await handle.getFile();
-      loadFromText(await file.text(), file.name);
-    }catch(e){ if(e.name!=='AbortError') console.error(e); }
-  } else {
-    document.getElementById('fileInput').click();
-  }
-};
+/* ---------- Chargement / sauvegarde via l'API Cloudflare (KV) ---------- */
+const API_URL = '/api/data/catalogue';
 
+const keyInput = document.getElementById('adminKey');
+keyInput.value = localStorage.getItem('admin_key') || '';
+keyInput.oninput = () => localStorage.setItem('admin_key', keyInput.value);
+
+async function loadFromServer(){
+  setStatus('Chargement…');
+  try{
+    const res = await fetch(API_URL);
+    if(!res.ok) throw new Error('Erreur serveur (' + res.status + ')');
+    const text = await res.text();
+    data = (text && text !== 'null') ? JSON.parse(text) : emptyData();
+    if(!data.categories) data.categories = [];
+    if(!data.meta) data.meta = emptyData().meta;
+    selection = {type:'meta'};
+    setStatus('À jour');
+    renderAll();
+  }catch(e){
+    console.error(e);
+    setStatus('Hors ligne / API indisponible');
+    data = emptyData();
+    selection = {type:'meta'};
+    renderAll();
+  }
+}
+
+document.getElementById('btnImport').onclick = () => document.getElementById('fileInput').click();
 document.getElementById('fileInput').onchange = (e) => {
   const file = e.target.files[0];
   if(!file) return;
   const reader = new FileReader();
-  reader.onload = () => loadFromText(reader.result, file.name);
+  reader.onload = () => {
+    try{
+      data = JSON.parse(reader.result);
+      if(!data.categories) data.categories = [];
+      if(!data.meta) data.meta = emptyData().meta;
+      selection = {type:'meta'};
+      renderAll();
+      toast("Fichier importé — clique Enregistrer pour le publier en ligne");
+    }catch(err){ alert("Fichier JSON invalide : " + err.message); }
+  };
   reader.readAsText(file);
-};
-
-function loadFromText(text, name){
-  try{
-    data = JSON.parse(text);
-    if(!data.categories) data.categories = [];
-    if(!data.meta) data.meta = emptyData().meta;
-    selection = {type:'meta'};
-    setStatus("Chargé : " + name);
-    renderAll();
-    toast("Catalogue chargé");
-  }catch(err){
-    alert("Fichier JSON invalide : " + err.message);
-  }
-}
-
-document.getElementById('btnNew').onclick = () => {
-  if(data && !confirm("Créer un nouveau catalogue vide ? Les données non enregistrées seront perdues.")) return;
-  data = emptyData();
-  fileHandle = null;
-  selection = {type:'meta'};
-  setStatus("Nouveau catalogue (non enregistré)");
-  renderAll();
 };
 
 document.getElementById('btnSave').onclick = async () => {
   if(!data) return;
-  const text = JSON.stringify(data, null, 2);
-  if(fileHandle){
-    try{
-      const writable = await fileHandle.createWritable();
-      await writable.write(text);
-      await writable.close();
-      toast("Enregistré dans " + fileHandle.name);
-      return;
-    }catch(e){ console.error(e); }
+  const adminKey = keyInput.value;
+  if(!adminKey){ alert("Entre la clé d'équipe avant d'enregistrer."); return; }
+  setStatus('Enregistrement…');
+  try{
+    const res = await fetch(API_URL, {
+      method:'PUT',
+      headers:{'Content-Type':'application/json', 'X-Admin-Key':adminKey},
+      body: JSON.stringify(data)
+    });
+    if(res.status===401){ setStatus('Clé incorrecte'); alert("Clé d'équipe incorrecte."); return; }
+    if(!res.ok) throw new Error('Erreur serveur (' + res.status + ')');
+    setStatus('Enregistré ✓');
+    toast("Catalogue publié");
+  }catch(e){
+    console.error(e);
+    setStatus("Échec de l'enregistrement");
+    alert("Échec de l'enregistrement : " + e.message);
   }
-  // Pas de handle (Firefox/Safari, ou nouveau catalogue) → proposer d'en créer un ou télécharger
-  if(window.showSaveFilePicker){
-    try{
-      const handle = await window.showSaveFilePicker({
-        suggestedName:'catalogue.json',
-        types:[{description:'JSON', accept:{'application/json':['.json']}}]
-      });
-      const writable = await handle.createWritable();
-      await writable.write(text);
-      await writable.close();
-      fileHandle = handle;
-      setStatus("Enregistré : " + handle.name);
-      toast("Enregistré");
-      return;
-    }catch(e){ if(e.name!=='AbortError') console.error(e); return; }
-  }
-  downloadJson();
 };
 
 document.getElementById('btnDownload').onclick = downloadJson;
@@ -432,10 +423,7 @@ function addDeleteAction(panel, confirmMsg, onConfirm){
 }
 
 /* ---------- Init ---------- */
-if(!window.showOpenFilePicker){
-  const w = document.createElement('div');
-  // Affiché seulement si on charge un jour un panel ; on informe simplement au premier rendu.
-}
+loadFromServer();
 </script>
 </body>
 </html>

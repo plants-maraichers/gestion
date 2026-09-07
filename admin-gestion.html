@@ -55,13 +55,12 @@
 
 <header>
   <h1>📊 Admin gestion</h1>
-  <div class="status" id="statusLabel">Aucune donnée chargée</div>
+  <div class="status" id="statusLabel">Connexion…</div>
   <div class="btnbar">
-    <button id="btnLoadCatalogue">1. Charger catalogue.json</button>
-    <button id="btnOpen">2. Ouvrir gestion.json</button>
-    <button id="btnNew">Nouveau</button>
+    <input type="password" id="adminKey" placeholder="Clé d'équipe" style="padding:6px 8px;border-radius:4px;border:1px solid var(--line);width:150px;">
+    <button id="btnImport">Importer un fichier JSON</button>
     <button id="btnSave" class="primary">Enregistrer</button>
-    <button id="btnDownload">Télécharger</button>
+    <button id="btnDownload">Télécharger (sauvegarde)</button>
   </div>
 </header>
 
@@ -69,36 +68,19 @@
 <main id="main"><div class="empty-hint">Charge d'abord ton catalogue.json (pour la liste des variétés), puis ouvre ou crée gestion.json.</div></main>
 
 <div class="toast" id="toast"></div>
-<input type="file" id="catalogueInput" accept="application/json" style="display:none;">
-<input type="file" id="gestionInput" accept="application/json" style="display:none;">
+<input type="file" id="fileInput" accept="application/json" style="display:none;">
 
 <script>
 /* ---------- État ---------- */
 let catalogue = null;      // lecture seule
 let varietes = [];         // liste plate {id, nom, espece, categorie}
-let data = null;           // gestion.json
-let fileHandle = null;
+let data = null;           // gestion
 let activeTab = 'canaux';
 
 const emptyData = () => ({ canaux:[], stock:{}, prix:{}, charges:[], ventes:[] });
 const uid = () => 'v'+Math.random().toString(36).slice(2,9);
 const fmtMoney = n => (Math.round((n||0)*100)/100).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €';
 
-/* ---------- Chargement catalogue (lecture seule) ---------- */
-document.getElementById('btnLoadCatalogue').onclick = () => document.getElementById('catalogueInput').click();
-document.getElementById('catalogueInput').onchange = (e) => {
-  const file = e.target.files[0]; if(!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try{
-      catalogue = JSON.parse(reader.result);
-      buildVarieteList();
-      toast('Catalogue chargé (' + varietes.length + ' variétés)');
-      renderAll();
-    }catch(err){ alert('JSON invalide : '+err.message); }
-  };
-  reader.readAsText(file);
-};
 function buildVarieteList(){
   varietes = [];
   (catalogue.categories||[]).forEach(cat=>{
@@ -110,59 +92,74 @@ function buildVarieteList(){
   });
 }
 
-/* ---------- Chargement / sauvegarde gestion.json ---------- */
-document.getElementById('btnOpen').onclick = async () => {
-  if(window.showOpenFilePicker){
-    try{
-      const [handle] = await window.showOpenFilePicker({types:[{description:'JSON', accept:{'application/json':['.json']}}]});
-      fileHandle = handle;
-      const file = await handle.getFile();
-      loadFromText(await file.text(), file.name);
-    }catch(e){ if(e.name!=='AbortError') console.error(e); }
-  } else { document.getElementById('gestionInput').click(); }
-};
-document.getElementById('gestionInput').onchange = (e) => {
-  const file = e.target.files[0]; if(!file) return;
-  const reader = new FileReader();
-  reader.onload = () => loadFromText(reader.result, file.name);
-  reader.readAsText(file);
-};
-function loadFromText(text, name){
+/* ---------- Chargement / sauvegarde via l'API Cloudflare (KV) ---------- */
+const CATALOGUE_API = '/api/data/catalogue';
+const GESTION_API = '/api/data/gestion';
+
+const keyInput = document.getElementById('adminKey');
+keyInput.value = localStorage.getItem('admin_key') || '';
+keyInput.oninput = () => localStorage.setItem('admin_key', keyInput.value);
+
+async function loadAll(){
+  setStatus('Chargement…');
   try{
-    data = JSON.parse(text);
+    const [catRes, gesRes] = await Promise.all([fetch(CATALOGUE_API), fetch(GESTION_API)]);
+    const catText = await catRes.text();
+    catalogue = (catText && catText !== 'null') ? JSON.parse(catText) : {categories:[]};
+    buildVarieteList();
+    const gesText = await gesRes.text();
+    data = (gesText && gesText !== 'null') ? JSON.parse(gesText) : emptyData();
     ['canaux','charges','ventes'].forEach(k=>{ if(!data[k]) data[k]=[]; });
     ['stock','prix'].forEach(k=>{ if(!data[k]) data[k]={}; });
-    setStatus('Chargé : '+name);
+    setStatus('À jour (' + varietes.length + ' variétés)');
     renderAll();
-    toast('Gestion chargée');
-  }catch(err){ alert('JSON invalide : '+err.message); }
+  }catch(e){
+    console.error(e);
+    setStatus('Hors ligne / API indisponible');
+    catalogue = {categories:[]}; varietes = [];
+    data = emptyData();
+    renderAll();
+  }
 }
-document.getElementById('btnNew').onclick = () => {
-  if(data && !confirm('Créer une nouvelle gestion vide ? Les données non enregistrées seront perdues.')) return;
-  data = emptyData(); fileHandle = null;
-  setStatus('Nouvelle gestion (non enregistrée)');
-  renderAll();
+
+document.getElementById('btnImport').onclick = () => document.getElementById('fileInput').click();
+document.getElementById('fileInput').onchange = (e) => {
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      data = JSON.parse(reader.result);
+      ['canaux','charges','ventes'].forEach(k=>{ if(!data[k]) data[k]=[]; });
+      ['stock','prix'].forEach(k=>{ if(!data[k]) data[k]={}; });
+      renderAll();
+      toast("Fichier importé — clique Enregistrer pour le publier en ligne");
+    }catch(err){ alert('JSON invalide : '+err.message); }
+  };
+  reader.readAsText(file);
 };
+
 document.getElementById('btnSave').onclick = async () => {
   if(!data) return;
-  const text = JSON.stringify(data, null, 2);
-  if(fileHandle){
-    try{
-      const writable = await fileHandle.createWritable();
-      await writable.write(text); await writable.close();
-      toast('Enregistré dans '+fileHandle.name); return;
-    }catch(e){ console.error(e); }
+  const adminKey = keyInput.value;
+  if(!adminKey){ alert("Entre la clé d'équipe avant d'enregistrer."); return; }
+  setStatus('Enregistrement…');
+  try{
+    const res = await fetch(GESTION_API, {
+      method:'PUT',
+      headers:{'Content-Type':'application/json', 'X-Admin-Key':adminKey},
+      body: JSON.stringify(data)
+    });
+    if(res.status===401){ setStatus('Clé incorrecte'); alert("Clé d'équipe incorrecte."); return; }
+    if(!res.ok) throw new Error('Erreur serveur ('+res.status+')');
+    setStatus('Enregistré ✓');
+    toast('Données publiées');
+  }catch(e){
+    console.error(e);
+    setStatus("Échec de l'enregistrement");
+    alert("Échec de l'enregistrement : "+e.message);
   }
-  if(window.showSaveFilePicker){
-    try{
-      const handle = await window.showSaveFilePicker({suggestedName:'gestion.json', types:[{description:'JSON', accept:{'application/json':['.json']}}]});
-      const writable = await handle.createWritable();
-      await writable.write(text); await writable.close();
-      fileHandle = handle; setStatus('Enregistré : '+handle.name); toast('Enregistré'); return;
-    }catch(e){ if(e.name!=='AbortError') console.error(e); return; }
-  }
-  downloadJson();
 };
+
 document.getElementById('btnDownload').onclick = downloadJson;
 function downloadJson(){
   if(!data) return;
@@ -499,6 +496,9 @@ function renderDashboard(main){
   panel.appendChild(table);
   main.appendChild(panel);
 }
+
+/* ---------- Init ---------- */
+loadAll();
 </script>
 </body>
 </html>

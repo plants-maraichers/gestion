@@ -87,11 +87,13 @@ async function init(){
   const root = document.getElementById('content');
   let data;
   try{
-    const res = await fetch('data/catalogue.json');
+    const res = await fetch('/api/data/catalogue');
     if(!res.ok) throw new Error('introuvable');
-    data = await res.json();
+    const text = await res.text();
+    data = (text && text !== 'null') ? JSON.parse(text) : null;
+    if(!data) throw new Error('catalogue vide');
   }catch(e){
-    root.innerHTML = '<div class="empty-hint">Impossible de charger data/catalogue.json. Si tu regardes ce fichier en local, lance un petit serveur (ex : <code>python -m http.server</code>) plutôt que d\'ouvrir le fichier directement.</div>';
+    root.innerHTML = '<div class="empty-hint">Impossible de charger le catalogue. Si tu es en local, ceci ne fonctionne qu\'une fois déployé sur Cloudflare Pages (ou testé avec <code>wrangler pages dev</code>), car il lit les données via l\'API en ligne.</div>';
     return;
   }
   root.innerHTML = '';
